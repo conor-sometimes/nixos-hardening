@@ -9,6 +9,8 @@
 
 let
   cfg = config.security.hardening;
+  # hardening priority: beats nixpkgs' own mkDefault sysctls, still loses to the user's config
+  prio = lib.mkOverride 900;
   # a sub-area is on when hardening is enabled, unless explicitly turned off
   areaOption = desc: lib.mkOption {
     type = lib.types.bool;
@@ -75,64 +77,64 @@ in
     # --- kernel ---------------------------------------------------------------
     (lib.mkIf cfg.kernel.enable {
       boot.kernel.sysctl = {
-        "kernel.kptr_restrict" = lib.mkDefault 2;
-        "kernel.dmesg_restrict" = lib.mkDefault 1;
-        "kernel.printk" = lib.mkDefault "3 3 3 3";
-        "kernel.unprivileged_bpf_disabled" = lib.mkDefault 1;
-        "net.core.bpf_jit_harden" = lib.mkDefault 2;
-        "kernel.yama.ptrace_scope" = lib.mkDefault 1;
-        "kernel.kexec_load_disabled" = lib.mkDefault 1;
-        "kernel.sysrq" = lib.mkDefault 0;
-        "kernel.perf_event_paranoid" = lib.mkDefault 3;
-        "fs.protected_hardlinks" = lib.mkDefault 1;
-        "fs.protected_symlinks" = lib.mkDefault 1;
-        "fs.protected_fifos" = lib.mkDefault 2;
-        "fs.protected_regular" = lib.mkDefault 2;
-        "fs.suid_dumpable" = lib.mkDefault 0;
+        "kernel.kptr_restrict" = prio 2;
+        "kernel.dmesg_restrict" = prio 1;
+        "kernel.printk" = prio "3 3 3 3";
+        "kernel.unprivileged_bpf_disabled" = prio 1;
+        "net.core.bpf_jit_harden" = prio 2;
+        "kernel.yama.ptrace_scope" = prio 1;
+        "kernel.kexec_load_disabled" = prio 1;
+        "kernel.sysrq" = prio 0;
+        "kernel.perf_event_paranoid" = prio 3;
+        "fs.protected_hardlinks" = prio 1;
+        "fs.protected_symlinks" = prio 1;
+        "fs.protected_fifos" = prio 2;
+        "fs.protected_regular" = prio 2;
+        "fs.suid_dumpable" = prio 0;
       };
     })
 
     # --- network --------------------------------------------------------------
     (lib.mkIf cfg.network.enable {
       boot.kernel.sysctl = {
-        "net.ipv4.conf.all.rp_filter" = lib.mkDefault 1;
-        "net.ipv4.conf.default.rp_filter" = lib.mkDefault 1;
-        "net.ipv4.conf.all.accept_redirects" = lib.mkDefault 0;
-        "net.ipv4.conf.default.accept_redirects" = lib.mkDefault 0;
-        "net.ipv4.conf.all.secure_redirects" = lib.mkDefault 0;
-        "net.ipv4.conf.all.send_redirects" = lib.mkDefault 0;
-        "net.ipv4.conf.default.send_redirects" = lib.mkDefault 0;
-        "net.ipv4.conf.all.accept_source_route" = lib.mkDefault 0;
-        "net.ipv4.conf.default.accept_source_route" = lib.mkDefault 0;
-        "net.ipv6.conf.all.accept_redirects" = lib.mkDefault 0;
-        "net.ipv6.conf.all.accept_source_route" = lib.mkDefault 0;
-        "net.ipv4.conf.all.log_martians" = lib.mkDefault 1;
-        "net.ipv4.icmp_echo_ignore_broadcasts" = lib.mkDefault 1;
-        "net.ipv4.tcp_syncookies" = lib.mkDefault 1;
+        "net.ipv4.conf.all.rp_filter" = prio 1;
+        "net.ipv4.conf.default.rp_filter" = prio 1;
+        "net.ipv4.conf.all.accept_redirects" = prio 0;
+        "net.ipv4.conf.default.accept_redirects" = prio 0;
+        "net.ipv4.conf.all.secure_redirects" = prio 0;
+        "net.ipv4.conf.all.send_redirects" = prio 0;
+        "net.ipv4.conf.default.send_redirects" = prio 0;
+        "net.ipv4.conf.all.accept_source_route" = prio 0;
+        "net.ipv4.conf.default.accept_source_route" = prio 0;
+        "net.ipv6.conf.all.accept_redirects" = prio 0;
+        "net.ipv6.conf.all.accept_source_route" = prio 0;
+        "net.ipv4.conf.all.log_martians" = prio 1;
+        "net.ipv4.icmp_echo_ignore_broadcasts" = prio 1;
+        "net.ipv4.tcp_syncookies" = prio 1;
       };
     })
 
     # --- ssh ------------------------------------------------------------------
     (lib.mkIf cfg.ssh.enable {
       services.openssh.settings = {
-        PermitRootLogin = lib.mkDefault "no";
-        PasswordAuthentication = lib.mkDefault false;
-        KbdInteractiveAuthentication = lib.mkDefault false;
-        X11Forwarding = lib.mkDefault false;
-        AllowAgentForwarding = lib.mkDefault "no";
-        AllowTcpForwarding = lib.mkDefault "no";
-        KexAlgorithms = lib.mkDefault [
+        PermitRootLogin = prio "no";
+        PasswordAuthentication = prio false;
+        KbdInteractiveAuthentication = prio false;
+        X11Forwarding = prio false;
+        AllowAgentForwarding = prio "no";
+        AllowTcpForwarding = prio "no";
+        KexAlgorithms = prio [
           "curve25519-sha256"
           "curve25519-sha256@libssh.org"
           "diffie-hellman-group16-sha512"
           "diffie-hellman-group18-sha512"
         ];
-        Ciphers = lib.mkDefault [
+        Ciphers = prio [
           "chacha20-poly1305@openssh.com"
           "aes256-gcm@openssh.com"
           "aes128-gcm@openssh.com"
         ];
-        Macs = lib.mkDefault [
+        Macs = prio [
           "hmac-sha2-512-etm@openssh.com"
           "hmac-sha2-256-etm@openssh.com"
         ];
@@ -141,13 +143,13 @@ in
 
     # --- firewall -------------------------------------------------------------
     (lib.mkIf cfg.firewall.enable {
-      networking.firewall.enable = lib.mkDefault true;
+      networking.firewall.enable = prio true;
     })
 
     # --- misc -----------------------------------------------------------------
     (lib.mkIf cfg.misc.enable {
-      systemd.coredump.enable = lib.mkDefault false;
-      security.sudo.execWheelOnly = lib.mkDefault true;
+      systemd.coredump.enable = prio false;
+      security.sudo.execWheelOnly = prio true;
       # (hidepid for /proc is a good next step but needs systemd in a proc group to
       # avoid breaking services; left out of the default set - see README.)
     })
@@ -169,16 +171,20 @@ in
 
     # --- impermanence: ephemeral root ----------------------------------------
     (lib.mkIf cfg.impermanence.root.enable {
-      fileSystems."/" = lib.mkForce {
-        device = "none";
-        fsType = "tmpfs";
-        options = [ "defaults" "size=4G" "mode=755" ];
-      };
-      fileSystems."${cfg.impermanence.persistDevice}".neededForBoot = lib.mkDefault true;
-      fileSystems = lib.mkMerge (map
+      fileSystems = lib.mkMerge ([
+        {
+          "/" = lib.mkForce {
+            device = "none";
+            fsType = "tmpfs";
+            options = [ "defaults" "size=4G" "mode=755" ];
+          };
+          "${cfg.impermanence.persistDevice}".neededForBoot = prio true;
+        }
+      ] ++ map
         (p: {
           ${p} = {
             device = "${cfg.impermanence.persistDevice}${p}";
+            fsType = "none";
             options = [ "bind" ];
             neededForBoot = true;
           };
@@ -191,7 +197,7 @@ in
     # chowns it, and only the listed sub-paths are bind-mounted back from the persist
     # device. Anything the user leaves outside those paths is gone on reboot.
     {
-      users.users = lib.mapAttrs (_: _: { createHome = lib.mkDefault true; }) cfg.impermanence.homes;
+      users.users = lib.mapAttrs (_: _: { createHome = prio true; }) cfg.impermanence.homes;
       fileSystems = lib.mkMerge (lib.mapAttrsToList
         (user: h:
           let home = config.users.users.${user}.home or "/home/${user}";
@@ -207,6 +213,7 @@ in
             (sub: {
               "${home}/${sub}" = {
                 device = "${cfg.impermanence.persistDevice}${home}/${sub}";
+                fsType = "none";
                 options = [ "bind" ];
               };
             })
