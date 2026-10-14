@@ -49,23 +49,29 @@ in
       };
       homes = lib.mkOption {
         description = ''
-          Per-user ephemeral homes: the home is a tmpfs wiped every boot, and only the listed
-          sub-paths are bind-mounted back from the persist device. The declared contract is the
-          whole point - an agent (or any user) cannot accumulate undeclared state. Anything NOT
-          listed is gone on reboot, so list what must survive (e.g. "repos", ".ssh").
+          Per-user ephemeral homes - OPT-IN BY NAME. Each named user's home is a fresh tmpfs every
+          boot; only the declared directories are bind-mounted back from the persist device, so the
+          user cannot accumulate undeclared state. Users you do not list (including your own) are
+          untouched. There is deliberately no "all users" switch: naming each user is the safety.
+          Boot granularity - the reset is a reboot, never a login/logout (that would clobber an
+          agent's jobs, which outlive sessions; see README).
         '';
         default = { };
-        example = lib.literalExpression ''{ claude = { persist = [ ".ssh" "repos" ".config" ]; }; }'';
+        example = lib.literalExpression ''{ claude = { directories = [ "repos" ".config" ".ssh" ]; }; }'';
         type = lib.types.attrsOf (lib.types.submodule {
-          options.persist = lib.mkOption {
+          options.directories = lib.mkOption {
             type = lib.types.listOf lib.types.str;
             default = [ ".ssh" ];
-            description = "Home-relative paths to keep across reboots; everything else in the home is ephemeral.";
+            description = ''
+              Home-relative directories to persist (bind-mounted from the persist device); everything
+              else in the home is ephemeral. For individual config files, persist the containing
+              directory (e.g. ".config") or manage them declaratively - no per-file binds.
+            '';
           };
           options.size = lib.mkOption {
             type = lib.types.str;
             default = "2G";
-            description = "tmpfs size cap for the ephemeral home.";
+            description = "tmpfs size cap for the ephemeral part of the home (persisted dirs live on disk, not here).";
           };
         });
       };
@@ -198,6 +204,17 @@ in
     # device. Anything the user leaves outside those paths is gone on reboot.
     {
       users.users = lib.mapAttrs (_: _: { createHome = prio true; }) cfg.impermanence.homes;
+
+      # keep the persist-side source dirs present and user-owned (idempotent create-if-absent,
+      # the only non-mount op; everything else is bind mounts, no cp/mv/rm)
+      systemd.tmpfiles.rules = lib.concatLists (lib.mapAttrsToList
+        (user: h:
+          let
+            home = config.users.users.${user}.home or "/home/${user}";
+            group = config.users.users.${user}.group or "users";
+          in map (sub: "d ${cfg.impermanence.persistDevice}${home}/${sub} 0700 ${user} ${group} -") h.directories)
+        cfg.impermanence.homes);
+
       fileSystems = lib.mkMerge (lib.mapAttrsToList
         (user: h:
           let home = config.users.users.${user}.home or "/home/${user}";
@@ -217,7 +234,7 @@ in
                 options = [ "bind" ];
               };
             })
-            h.persist))
+            h.directories))
         cfg.impermanence.homes);
     }
   ]);

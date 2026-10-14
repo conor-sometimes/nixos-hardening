@@ -31,7 +31,7 @@
   # the agent's "slice of heaven": a fresh home every boot, keeping only what is
   # declared. Note repos is persisted so uncommitted work is not lost; drop it to
   # force the agent to push everything before reboot.
-  security.hardening.impermanence.homes.claude.persist = [ ".ssh" "repos" ".config" ];
+  security.hardening.impermanence.homes.claude.directories = [ ".ssh" "repos" ".config" ];
   users.users.claude = {
     isNormalUser = true;
     uid = 1100;

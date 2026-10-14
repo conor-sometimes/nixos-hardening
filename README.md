@@ -45,19 +45,32 @@ security.hardening.impermanence.root.enable = true;
 security.hardening.impermanence.rootPersist = [ "/var/log" "/var/lib/nixos" "/etc/ssh" "/etc/machine-id" ];
 ```
 
-**Ephemeral homes** are the sharp version — a fresh home every boot, keeping only declared paths.
-Pair it with [nixos-agent-containment](https://github.com/conor-sometimes/nixos-agent-containment) and
-a contained agent literally cannot accumulate undeclared state between sessions:
+**Ephemeral homes** are the sharp version — opt in a user *by name* and its home becomes a fresh
+tmpfs every boot, keeping only the declared directories. Pair it with
+[nixos-agent-containment](https://github.com/conor-sometimes/nixos-agent-containment) and a contained
+agent cannot accumulate undeclared state across reboots:
 
 ```nix
-# the agent's home resets every boot; only these survive
-security.hardening.impermanence.homes.claude.persist = [ ".ssh" "repos" ".config" ];
+# only the claude user; everyone else (incl. you) is untouched
+security.hardening.impermanence.homes.claude.directories = [ ".ssh" "repos" ".config" ];
 ```
 
-You provide the backing for the persist device (`/persist` by default) in your own `fileSystems`.
-Declare what must survive — if you keep uncommitted work in `~/repos`, persist it, or drop it from
-the list to *force* everything to be pushed before a reboot. `examples/impermanent-agent.nix` is a
-complete, buildable showcase.
+There is deliberately **no "all users" switch** — you name each user, and that explicit naming is the
+safety. The declared directories are **bind-mounted** from the persist device into the fresh tmpfs
+home: no `cp`, no `mv`, no `rm`, nothing shuffled — the data lives in one place and simply appears at
+the home path, so it can't be half-copied or lost. Only the *scratch* part of the home (the tmpfs)
+is ephemeral; the persisted dirs live on disk, so repo size is not a RAM concern.
+
+You provide the backing for the persist device (`/persist` by default) in your own `fileSystems`,
+and seed its per-user dirs once (the module keeps them user-owned via a `tmpfiles` rule). Declare
+what must survive — keep `~/repos` if uncommitted work matters, or drop it to *force* a push before
+reboot. For individual config *files*, persist the containing directory or manage them declaratively;
+there are no per-file binds on purpose.
+
+**Granularity is per-boot, not per-session.** Login/logout triggers are deliberately out: an agent's
+jobs outlive its SSH sessions, so a session-boundary reset would clobber running work. If you want
+aggressive per-unit-of-work resets, that's an ephemeral VM/container per job — a different tool.
+`examples/impermanent-agent.nix` is a complete, buildable showcase.
 
 ## Verify it
 
