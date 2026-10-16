@@ -11,6 +11,7 @@ let
   cfg = config.security.hardening;
   # hardening priority: beats nixpkgs' own mkDefault sysctls, still loses to the user's config
   prio = lib.mkOverride 900;
+  rpFilter = if cfg.network.rpFilter == "loose" then 2 else 1;
   # a sub-area is on when hardening is enabled, unless explicitly turned off
   areaOption = desc: lib.mkOption {
     type = lib.types.bool;
@@ -25,9 +26,27 @@ in
 
     kernel.enable = areaOption "Kernel hardening sysctls (kptr/dmesg restrict, ptrace scope, BPF, kexec, sysrq, protected links).";
     network.enable = areaOption "Network hardening sysctls (reverse-path filter, no redirects/source-routing, martian logging, syncookies).";
-    ssh.enable = areaOption "OpenSSH hardening (no root login, keys only, no forwarding, modern KEX/ciphers/MACs).";
+    network.rpFilter = lib.mkOption {
+      type = lib.types.enum [ "strict" "loose" ];
+      default = "strict";
+      description = ''
+        Reverse-path filtering (rp_filter). "strict" (1) drops packets arriving on an interface
+        the route back would not use; "loose" (2) only drops sources with no route at all. Strict
+        can break container and network-namespace routing (podman, per-agent netns): use "loose" there.
+      '';
+    };
+    ssh.enable = areaOption "OpenSSH hardening (no root login, keys only, few auth tries, no forwarding, modern KEX/ciphers/MACs).";
+    ssh.allowTcpForwarding = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Keep TCP forwarding (ssh -L/-R/-W, ProxyJump through this host). Off by default; turn it on
+        for a jump host rather than turning off the whole ssh area. Agent and X11 forwarding stay off.
+      '';
+    };
     firewall.enable = areaOption "Enable the firewall with a default-deny inbound policy.";
-    misc.enable = areaOption "Misc restrictions (no core dumps, restrict su to a group, hide other users' processes).";
+    misc.enable = areaOption "Misc restrictions (no core dumps, sudo only for wheel).";
+    nix.enable = areaOption "Nix daemon: only wheel may use it, and a warning when anyone but root is a trusted user.";
 
     audit.enable = lib.mkOption {
       type = lib.types.bool;
@@ -103,8 +122,8 @@ in
     # --- network --------------------------------------------------------------
     (lib.mkIf cfg.network.enable {
       boot.kernel.sysctl = {
-        "net.ipv4.conf.all.rp_filter" = prio 1;
-        "net.ipv4.conf.default.rp_filter" = prio 1;
+        "net.ipv4.conf.all.rp_filter" = prio rpFilter;
+        "net.ipv4.conf.default.rp_filter" = prio rpFilter;
         "net.ipv4.conf.all.accept_redirects" = prio 0;
         "net.ipv4.conf.default.accept_redirects" = prio 0;
         "net.ipv4.conf.all.secure_redirects" = prio 0;
@@ -126,10 +145,16 @@ in
         PermitRootLogin = prio "no";
         PasswordAuthentication = prio false;
         KbdInteractiveAuthentication = prio false;
+        MaxAuthTries = prio 3;
+        LoginGraceTime = prio 20;
         X11Forwarding = prio false;
         AllowAgentForwarding = prio "no";
-        AllowTcpForwarding = prio "no";
+        AllowTcpForwarding = prio (if cfg.ssh.allowTcpForwarding then "yes" else "no");
         KexAlgorithms = prio [
+          # post-quantum hybrids first (OpenSSH 9.9+ / 9.0+), as OpenSSH's own defaults do
+          "mlkem768x25519-sha256"
+          "sntrup761x25519-sha512"
+          "sntrup761x25519-sha512@openssh.com"
           "curve25519-sha256"
           "curve25519-sha256@libssh.org"
           "diffie-hellman-group16-sha512"
@@ -158,6 +183,17 @@ in
       security.sudo.execWheelOnly = prio true;
       # (hidepid for /proc is a good next step but needs systemd in a proc group to
       # avoid breaking services; left out of the default set - see README.)
+    })
+
+    # --- nix daemon -----------------------------------------------------------
+    # allowed-users is set at normal priority on purpose: list definitions only merge at equal
+    # priority, so a weaker one would be dropped whole by any module that adds a user (e.g.
+    # nixos-agent-containment's allowNixBuilds) and wheel would lose the daemon.
+    (lib.mkIf cfg.nix.enable {
+      nix.settings.allowed-users = [ "@wheel" ];
+      # a trusted user can import unsigned store paths: root without sudo
+      warnings = lib.optional (lib.any (u: u != "root") config.nix.settings.trusted-users)
+        "security.hardening.nix: trusted-users has more than root (${toString config.nix.settings.trusted-users}); a trusted user is effectively root.";
     })
 
     # --- audit baseline -------------------------------------------------------

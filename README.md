@@ -21,10 +21,11 @@ hardening never fights your own config.
 | Area | Option | What |
 | --- | --- | --- |
 | **Kernel** | `kernel.enable` | `kptr_restrict=2`, `dmesg_restrict`, `unprivileged_bpf_disabled`, hardened BPF JIT, `yama.ptrace_scope=1`, `kexec_load_disabled`, `sysrq=0`, protected hard/sym links & FIFOs, no suid core dumps |
-| **Network** | `network.enable` | reverse-path filter, no ICMP redirects, no source routing, martian logging, broadcast-ICMP ignore, TCP syncookies (v4 + v6) |
-| **SSH** | `ssh.enable` | no root login, keys only, no agent/TCP/X11 forwarding, modern KEX / ciphers / MACs only |
+| **Network** | `network.enable` | reverse-path filter (`network.rpFilter`: `"strict"`, or `"loose"` for container / netns hosts), no ICMP redirects, no source routing, martian logging, broadcast-ICMP ignore, TCP syncookies (v4 + v6) |
+| **SSH** | `ssh.enable` | no root login, keys only, 3 auth tries, 20 s login grace, no agent/TCP/X11 forwarding (`ssh.allowTcpForwarding` keeps TCP for a jump host), post-quantum KEX first, modern ciphers / MACs only |
 | **Firewall** | `firewall.enable` | enabled with a default-deny inbound policy |
 | **Misc** | `misc.enable` | no core dumps, `sudo` restricted to the wheel group |
+| **Nix** | `nix.enable` | only wheel may use the Nix daemon (merges with users other modules add, e.g. an agent's `allowNixBuilds`); warns when anyone but root is a trusted user (a trusted user is root without sudo) |
 | **Audit** | `audit.enable` (off by default) | auditd baseline: identity, sudoers, sshd-config and time-change watches |
 
 Turn any area off while keeping the rest:
