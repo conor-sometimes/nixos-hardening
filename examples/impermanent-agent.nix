@@ -1,6 +1,7 @@
 # Example host: hardened, with an ephemeral root and an impermanent home for a
-# contained agent user ("claude"). Only the declared paths survive a reboot, so the
-# agent cannot accumulate undeclared state. Composes with nixos-agent-containment.
+# contained agent user ("claude"). Only the declared paths survive a reboot (root and home
+# both ephemeral), so undeclared state is gone. Composes with nixos-agent-containment; the
+# persist list stays narrow because whatever is planted inside a persisted path survives too.
 #
 # This is a build (not boot) example for CI: the device labels need not exist to
 # realise the system, only to run it.
@@ -30,8 +31,10 @@
 
   # the agent's "slice of heaven": a fresh home every boot, keeping only what is
   # declared. Note repos is persisted so uncommitted work is not lost; drop it to
-  # force the agent to push everything before reboot.
-  security.hardening.impermanence.homes.claude.directories = [ ".ssh" "repos" ".config" ];
+  # force the agent to push everything before reboot. Narrow config dirs only: the whole
+  # of .config would keep systemd user units and shell configs, and .ssh would keep an
+  # authorized_keys the agent wrote itself.
+  security.hardening.impermanence.homes.claude.directories = [ "repos" ".config/gh" ".config/git" ];
   users.users.claude = {
     isNormalUser = true;
     uid = 1100;

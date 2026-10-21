@@ -37,8 +37,9 @@ security.hardening.ssh.enable = false;   # e.g. you manage sshd yourself
 
 ## Impermanence (opt-in)
 
-An ephemeral system that rebuilds to a declared state every boot: nothing undeclared survives, so
-drift, leftover state and anything an attacker (or a wayward agent) plants is gone on reboot.
+An ephemeral system that rebuilds to a declared state every boot: undeclared state does not survive,
+so drift and leftovers are gone on reboot, and so is anything an attacker (or a wayward agent) plants
+*outside* the paths you persist. What it plants *inside* them stays (see the limits below).
 
 ```nix
 # ephemeral tmpfs root; only these come back from /persist
@@ -47,13 +48,19 @@ security.hardening.impermanence.rootPersist = [ "/var/log" "/var/lib/nixos" "/et
 ```
 
 **Ephemeral homes** are the sharp version — opt in a user *by name* and its home becomes a fresh
-tmpfs every boot, keeping only the declared directories. Pair it with
-[nixos-agent-containment](https://github.com/conor-sometimes/nixos-agent-containment) and a contained
-agent cannot accumulate undeclared state across reboots:
+tmpfs every boot, keeping only the declared directories. It composes with
+[nixos-agent-containment](https://github.com/conor-sometimes/nixos-agent-containment) (the two
+modules are independent; neither needs the other): the agent's home stops being a place to keep
+things between reboots. On its own an ephemeral home is not enough. Paths outside the home that the
+user can write (`/var/tmp`, its Nix profiles under `/nix/var`) still persist unless the root is
+ephemeral too, and everything inside a persisted directory persists, including whatever the agent
+plants there. So persist narrow directories, never the places that run code later:
 
 ```nix
 # only the claude user; everyone else (incl. you) is untouched
-security.hardening.impermanence.homes.claude.directories = [ ".ssh" "repos" ".config" ];
+security.hardening.impermanence.homes.claude.directories = [ "repos" ".config/gh" ".config/git" ];
+# not ".config" (systemd user units, shell configs and autostart live there), and not ".ssh" if
+# sshd reads ~/.ssh/authorized_keys: the agent could add a key of its own that survives
 ```
 
 There is deliberately **no "all users" switch** — you name each user, and that explicit naming is the
@@ -77,8 +84,9 @@ aggressive per-unit-of-work resets, that's an ephemeral VM/container per job —
 
 `sudo ./verify.sh` on the running host checks the sysctls, the effective `sshd` config and the
 firewall, and exits non-zero on any gap. The module is also **VM-tested**: `nix flake check` boots a
-machine with hardening on and asserts every wall holds (`tests/vm.nix`), and builds the impermanence
-example to prove it evaluates.
+machine with hardening on and asserts every wall holds (`tests/vm.nix`), boots an ephemeral home
+across a reboot (`tests/impermanence.nix`: the user owns and can write its fresh home, declared
+directories survive, the rest is gone), and builds the impermanence example.
 
 ## What it does not protect against
 
@@ -91,7 +99,13 @@ example to prove it evaluates.
   common workflows (systemd, nix sandbox, containers). Opt into them yourself if your threat model
   wants them.
 - **Impermanence is a property, not a guarantee of cleanliness.** It discards *undeclared* state on
-  reboot; whatever you persist persists, compromise and all. Keep the persist list minimal.
+  reboot; whatever you persist persists, compromise and all. Keep the persist list minimal, and keep
+  code-running paths out of it: `~/.config` holds systemd user units and shell configs, `~/.ssh`
+  holds `authorized_keys` (turn off home-directory key files for an agent user and give it keys
+  from `/etc`), and a persisted repo keeps its `.git/hooks`.
+- **An ephemeral home leaves the rest of the disk alone.** `/var/tmp` and the user's Nix profiles
+  under `/nix/var` survive a reboot unless the root is ephemeral as well (`/nix` itself is always on
+  disk).
 
 ## Licence
 

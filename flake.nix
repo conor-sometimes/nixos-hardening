@@ -26,6 +26,8 @@
       checks.${system} = {
         # The real proof: boot a machine with hardening on and assert the walls hold.
         vm = import ./tests/vm.nix { inherit pkgs self; };
+        # Ephemeral homes booted and rebooted: writable, declared dirs survive, the rest is gone.
+        impermanence = import ./tests/impermanence.nix { inherit pkgs self; };
         # The impermanence wiring evaluates and builds into a valid system.
         example = self.nixosConfigurations.example.config.system.build.toplevel;
       };

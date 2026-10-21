@@ -70,21 +70,23 @@ in
         description = ''
           Per-user ephemeral homes - OPT-IN BY NAME. Each named user's home is a fresh tmpfs every
           boot; only the declared directories are bind-mounted back from the persist device, so the
-          user cannot accumulate undeclared state. Users you do not list (including your own) are
+          rest of the home starts clean. Anything inside a declared directory survives, so keep
+          code-running paths (.config, .ssh) out of it. Users you do not list (including your own) are
           untouched. There is deliberately no "all users" switch: naming each user is the safety.
           Boot granularity - the reset is a reboot, never a login/logout (that would clobber an
           agent's jobs, which outlive sessions; see README).
         '';
         default = { };
-        example = lib.literalExpression ''{ claude = { directories = [ "repos" ".config" ".ssh" ]; }; }'';
+        example = lib.literalExpression ''{ claude = { directories = [ "repos" ".config/gh" ".config/git" ]; }; }'';
         type = lib.types.attrsOf (lib.types.submodule {
           options.directories = lib.mkOption {
             type = lib.types.listOf lib.types.str;
             default = [ ".ssh" ];
             description = ''
               Home-relative directories to persist (bind-mounted from the persist device); everything
-              else in the home is ephemeral. For individual config files, persist the containing
-              directory (e.g. ".config") or manage them declaratively - no per-file binds.
+              else in the home is ephemeral. For individual config files, persist the narrowest
+              containing directory (e.g. ".config/gh", not ".config") or manage them declaratively -
+              no per-file binds.
             '';
           };
           options.size = lib.mkOption {
@@ -242,13 +244,21 @@ in
       users.users = lib.mapAttrs (_: _: { createHome = prio true; }) cfg.impermanence.homes;
 
       # keep the persist-side source dirs present and user-owned (idempotent create-if-absent,
-      # the only non-mount op; everything else is bind mounts, no cp/mv/rm)
+      # the only non-mount op; everything else is bind mounts, no cp/mv/rm). Also hand the fresh
+      # tmpfs home and the parents of nested persisted dirs (.config for .config/gh) to the user:
+      # the tmpfs and systemd's mount points come up root-owned, and `d` fixes owner and mode of a
+      # directory that already exists (tmpfiles runs after the mounts).
       systemd.tmpfiles.rules = lib.concatLists (lib.mapAttrsToList
         (user: h:
           let
-            home = config.users.users.${user}.home or "/home/${user}";
-            group = config.users.users.${user}.group or "users";
-          in map (sub: "d ${cfg.impermanence.persistDevice}${home}/${sub} 0700 ${user} ${group} -") h.directories)
+            u = config.users.users.${user};
+            home = u.home or "/home/${user}";
+            group = u.group or "users";
+            parents = sub: let parts = lib.splitString "/" sub; in
+              map (n: lib.concatStringsSep "/" (lib.take n parts)) (lib.range 1 (lib.length parts - 1));
+          in [ "d ${home} ${u.homeMode or "0700"} ${user} ${group} -" ]
+            ++ map (p: "d ${home}/${p} 0700 ${user} ${group} -") (lib.unique (lib.concatMap parents h.directories))
+            ++ map (sub: "d ${cfg.impermanence.persistDevice}${home}/${sub} 0700 ${user} ${group} -") h.directories)
         cfg.impermanence.homes);
 
       fileSystems = lib.mkMerge (lib.mapAttrsToList
